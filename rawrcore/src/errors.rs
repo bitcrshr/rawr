@@ -1,22 +1,22 @@
-pub enum RawrCoreError {
+pub enum RawrCoreError<'r> {
     InvalidInvocation,
     RequestError(RequestErrorData),
-    ResponseError(ResponseErrorData),
-    OAuthError(OAuthErrorData),
-    BadJSON(ResponseErrorData),
-    BadRequest(ResponseErrorData),
-    Conflict(ResponseErrorData),
-    Forbidden(ResponseErrorData),
-    InsufficientScope(ResponseErrorData),
-    InvalidToken(ResponseErrorData),
-    NotFound(ResponseErrorData),
-    Redirect(RedirectData),
-    ServerError(ResponseErrorData),
-    SpecialError(SpecialErrorData),
-    TooLarge(ResponseErrorData),
-    TooManyRequests(ResponseErrorData),
-    UnavailableForLegalReasons(ResponseErrorData),
-    URITooLong(ResponseErrorData)
+    ResponseError(ResponseErrorData<'r>),
+    OAuthError(OAuthErrorData<'r>),
+    BadJSON(ResponseErrorData<'r>),
+    BadRequest(ResponseErrorData<'r>),
+    Conflict(ResponseErrorData<'r>),
+    Forbidden(ResponseErrorData<'r>),
+    InsufficientScope(ResponseErrorData<'r>),
+    InvalidToken(ResponseErrorData<'r>),
+    NotFound(ResponseErrorData<'r>),
+    Redirect(RedirectData<'r>),
+    ServerError(ResponseErrorData<'r>),
+    SpecialError(SpecialErrorData<'r>),
+    TooLarge(ResponseErrorData<'r>),
+    TooManyRequests(ResponseErrorData<'r>),
+    UnavailableForLegalReasons(ResponseErrorData<'r>),
+    URITooLong(ResponseErrorData<'r>)
 }
 
 pub struct RequestErrorData {
@@ -24,23 +24,23 @@ pub struct RequestErrorData {
     pub request: reqwest::Request
 }
 
-pub struct ResponseErrorData {
-    pub response: reqwest::Response,
+pub struct ResponseErrorData<'r> {
+    pub response: &'r reqwest::Response,
 }
 
-pub struct OAuthErrorData {
-    pub response: reqwest::Response,
+pub struct OAuthErrorData<'r> {
+    pub response: &'r reqwest::Response,
     pub error: String,
     pub description: Option<String>
 }
 
-pub struct RedirectData {
-    pub response: reqwest::Response,
+pub struct RedirectData<'r> {
+    pub response: &'r reqwest::Response,
     pub path: String
 }
 
-pub struct SpecialErrorData {
-    pub response: reqwest::Response,
+pub struct SpecialErrorData<'r> {
+    pub response: &'r reqwest::Response,
     pub retry_after: u16,
     pub message: String
 }
