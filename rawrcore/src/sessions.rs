@@ -1,7 +1,7 @@
 use std::{collections::HashMap, thread, time::Duration};
 use lazy_static::lazy_static;
 use rand::Rng;
-use crate::errors::{RawrCoreError, ResponseErrorData, RedirectData, SpecialErrorData};
+use crate::{errors::{RawrCoreError, ResponseErrorData, RedirectData, SpecialErrorData}, auth::authorizers::Authorizer};
 use reqwest::{StatusCode, Response, header::HeaderValue};
 
 lazy_static! {
@@ -170,7 +170,9 @@ impl RetryStrategy for FiniteRetryStrategy {
     }
 }
 
-pub struct Session {}
+pub struct Session {
+    authorizer: dyn Authorizer,    
+}
 
 impl Session {
     

@@ -1,5 +1,5 @@
 pub enum RawrCoreError<'r> {
-    InvalidInvocation,
+    InvalidInvocation(&'r str),
     RequestError(RequestErrorData),
     ResponseError(ResponseErrorData<'r>),
     OAuthError(OAuthErrorData<'r>),

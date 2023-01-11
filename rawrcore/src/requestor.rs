@@ -16,7 +16,7 @@ impl Requestor {
         timeout: Option<f32>,
     ) -> Result<Self, RawrCoreError<'r>> {
         if user_agent.eq("") || user_agent.len() < 7 {
-            return Err(RawrCoreError::InvalidInvocation);
+            return Err(RawrCoreError::InvalidInvocation("user_agent is not descriptive"));
         }
 
         Ok(Self {
@@ -40,5 +40,11 @@ impl Requestor {
                 None => *crate::constants::TIMEOUT,
             },
         })
+    }
+
+    pub fn close(&self) {}
+
+    pub fn request(&self, timeout: Option<f32>) -> reqwest::Response {
+
     }
 }
