@@ -1,8 +1,12 @@
-use std::{collections::HashMap, thread, time::Duration};
+use crate::{
+    auth::authorizers::{Authorizer, BaseAuthorizer},
+    errors::{RawrCoreError, RedirectData, ResponseErrorData, SpecialErrorData}, rate_limit::RateLimiter,
+};
 use lazy_static::lazy_static;
 use rand::Rng;
-use crate::{errors::{RawrCoreError, ResponseErrorData, RedirectData, SpecialErrorData}, auth::authorizers::Authorizer};
-use reqwest::{StatusCode, Response, header::HeaderValue};
+use reqwest::{header::HeaderValue, Client, Request, Response, StatusCode};
+use serde::Serialize;
+use std::{collections::HashMap, thread, time::Duration};
 
 lazy_static! {
     static ref RETRY_STATUSES: [u16; 7] = [
@@ -21,7 +25,7 @@ fn is_success_status(response: &Response) -> bool {
         StatusCode::ACCEPTED => true,
         StatusCode::CREATED => true,
         StatusCode::OK => true,
-        _ => false
+        _ => false,
     }
 }
 
@@ -33,7 +37,7 @@ fn handle_redirect(response: &Response) -> Option<RawrCoreError> {
         let loc = location.unwrap();
         let val = match loc.to_str() {
             Ok(v) => v,
-            Err(_) => ""
+            Err(_) => "",
         };
 
         path = val;
@@ -46,9 +50,7 @@ fn handle_redirect(response: &Response) -> Option<RawrCoreError> {
 }
 
 fn response_to_rawrcore_error(response: &Response) -> Option<RawrCoreError> {
-    let response_error_data = ResponseErrorData {
-        response: response,
-    };
+    let response_error_data = ResponseErrorData { response: response };
 
     let err: Option<RawrCoreError> = match response.status() {
         StatusCode::INTERNAL_SERVER_ERROR => Some(RawrCoreError::ServerError(response_error_data)),
@@ -66,48 +68,47 @@ fn response_to_rawrcore_error(response: &Response) -> Option<RawrCoreError> {
             let try_after_header = response.headers().get("x-try-after");
 
             if try_after_header.is_some() {
-               try_after = match try_after_header {
-                Some(ta) => {
-                    let ta_string = match ta.to_str() {
-                        Ok(s) => s.to_string(),
-                        Err(e) => "0".to_string()
-                    };
+                try_after = match try_after_header {
+                    Some(ta) => {
+                        let ta_string = match ta.to_str() {
+                            Ok(s) => s.to_string(),
+                            Err(e) => "0".to_string(),
+                        };
 
-                    match ta_string.parse::<u16>() {
-                        Ok(r) => r,
-                        Err(_) => 0
+                        match ta_string.parse::<u16>() {
+                            Ok(r) => r,
+                            Err(_) => 0,
+                        }
                     }
-                },
 
-                None => {
-                    0
+                    None => 0,
                 }
-               }
             }
-            
+
             let special_err_data = SpecialErrorData {
                 response: response,
                 message: "".to_string(),
-                retry_after: try_after
+                retry_after: try_after,
             };
 
             Some(RawrCoreError::SpecialError(special_err_data))
-        },
+        }
         StatusCode::MOVED_PERMANENTLY => handle_redirect(response),
         StatusCode::NOT_FOUND => Some(RawrCoreError::NotFound(response_error_data)),
-        StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE => Some(RawrCoreError::TooLarge(response_error_data)),
+        StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE => {
+            Some(RawrCoreError::TooLarge(response_error_data))
+        }
         StatusCode::URI_TOO_LONG => Some(RawrCoreError::URITooLong(response_error_data)),
         StatusCode::SERVICE_UNAVAILABLE => Some(RawrCoreError::ServerError(response_error_data)),
         StatusCode::TOO_MANY_REQUESTS => Some(RawrCoreError::TooManyRequests(response_error_data)),
-        StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS =>Some( RawrCoreError::UnavailableForLegalReasons(response_error_data)),
-        code => {
-            match code.as_u16() {
-                520 => Some(RawrCoreError::ServerError(response_error_data)),
-                522 => Some(RawrCoreError::ServerError(response_error_data)),
-                _ => None
-            }
-        }
-        
+        StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS => Some(
+            RawrCoreError::UnavailableForLegalReasons(response_error_data),
+        ),
+        code => match code.as_u16() {
+            520 => Some(RawrCoreError::ServerError(response_error_data)),
+            522 => Some(RawrCoreError::ServerError(response_error_data)),
+            _ => None,
+        },
     };
 
     err
@@ -125,18 +126,14 @@ impl FiniteRetryStrategy {
         Self {
             retries: match retries {
                 Some(r) => r,
-                None => 3
-            }
+                None => 3,
+            },
         }
     }
 
     fn sleep_seconds(&self) -> Option<f32> {
         if self.retries < 3 {
-        let base: f32 = if self.retries == 2 {
-                0.0
-            } else {
-                2.0
-            };
+            let base: f32 = if self.retries == 2 { 0.0 } else { 2.0 };
 
             let mut rng = rand::thread_rng();
 
@@ -148,7 +145,11 @@ impl FiniteRetryStrategy {
 
     fn consume_available_retry(&self) -> Self {
         Self {
-            retries: if self.retries == 0 { 0 } else { self.retries - 1 },
+            retries: if self.retries == 0 {
+                0
+            } else {
+                self.retries - 1
+            },
         }
     }
 
@@ -162,18 +163,49 @@ impl RetryStrategy for FiniteRetryStrategy {
         let sleep_seconds = self.sleep_seconds();
 
         match sleep_seconds {
-            Some(secs) => {
-                thread::sleep(Duration::from_secs_f32(secs))
-            },
-            None => ()
+            Some(secs) => thread::sleep(Duration::from_secs_f32(secs)),
+            None => (),
         }
     }
 }
 
-pub struct Session {
-    authorizer: dyn Authorizer,    
+pub enum RequestMethod {
+    Post,
+    Get,
+    Patch,
+    Delete,
+}
+pub struct Session<R, A> where R: RetryStrategy, A: Authorizer {
+    http: reqwest::Client,
+    rate_limiter: RateLimiter,
+    retry_strategy_t: R,
+    authorizer: A
 }
 
-impl Session {
-    
+impl <'r, R, A> Session<R, A> where R: RetryStrategy, A: Authorizer {
+    pub fn new(authorizer: Option<A>) -> Self {        
+        Self {
+            authorizer,
+            http: reqwest::Client::new(),
+            rate_limiter: RateLimiter::new(),
+            retry_strategy_t: FiniteRetryStrategy::new(None)
+        }
+    }
+    pub fn  request<
+        D: Serialize + ?Sized,
+        F: Serialize + ?Sized,
+        J: Serialize + ?Sized,
+        P: Serialize + ?Sized,
+    >(
+        &self,
+        method: RequestMethod,
+        path: &'r str,
+        data: Option<&'r D>,
+        files: Option<&'r F>,
+        json: Option<&'r J>,
+        params: Option<&'r P>,
+        timeout: Option<f32>
+    ) {
+        
+    }
 }
