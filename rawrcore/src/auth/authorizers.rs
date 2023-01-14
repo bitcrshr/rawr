@@ -174,3 +174,121 @@ impl Authorizer {
         Ok(())
     }
 }
+
+pub struct DeviceIdAuthorizer {
+    base: BaseAuthorizer,
+    device_id: Option<String>,
+    scopes: Option<Vec<String>>,
+}
+impl DeviceIdAuthorizer {
+    pub fn new(base: BaseAuthorizer, device_id: Option<String>, scopes: Option<Vec<String>>) -> Self {
+        Self {
+            base,
+            device_id,
+            scopes
+        }
+    }
+
+    pub async fn refresh(&self) -> Result<(), RawrCoreError> {
+        let data: Vec<(&str, &str)> = vec![];
+
+        if self.scopes.is_some() {
+            let scopes = self.scopes.unwrap();
+            data.push(("scope", scopes.join(" ").as_str()));
+        }
+
+        let grant_type = "https://oauth.reddit.com/grants/installed_client";
+        data.push(("grant_type", grant_type));
+        data.push(("device_id", self.device_id.unwrap_or("".to_string()).as_str()));
+        
+        self.base.request_token(data).await
+    }
+}
+
+pub struct ImplicitAuthorizer {
+    base: BaseAuthorizer,
+    access_token: String,
+    expiration_timestamp: DateTime<Utc>,
+    scopes: HashSet<String>,
+}
+impl ImplicitAuthorizer {
+    fn new(base: BaseAuthorizer, access_token: String, expires_in: u64, scope: String) -> Self {
+        let expiration_timestamp = Utc::now().checked_add_signed(Duration::seconds(expires_in)).expect("Could not parse datetime");
+        let scopes = HashSet::<String>::new();
+
+        scope.split(" ").for_each(|s| {
+            scopes.insert(s.to_string());
+        });
+
+        Self {
+            base,
+            access_token,
+            scopes,
+            expiration_timestamp
+        }
+    }
+}
+
+struct ReadOnlyAuthorizer {
+    authorizer: Authorizer,
+    scopes: Option<Vec<String>>,
+}
+impl ReadOnlyAuthorizer {
+    fn new(authorizer: Authorizer, scopes: Option<Vec<String>>) -> Self {
+        Self {
+            authorizer,
+            scopes
+        }
+    }
+
+    pub async fn refresh(&self) -> Result<(), RawrCoreError> {
+        let data: Vec<(&str, &str)> = vec![];
+
+        if self.scopes.is_some() {
+            data.push(("scope", self.scopes.unwrap().join(" ").as_str()));
+        }
+
+        data.push(("grant_type", "client_credentials"));
+
+        self.request_token(data).await
+    }
+}
+
+struct ScriptAuthorizer {
+    base: BaseAuthorizer,
+    username: Option<String>,
+    password: Option<String>,
+    two_factor_callback: Option<Fn() -> String>,
+    scopes: Option<Vec<String>>
+}
+impl ScriptAuthorizer {
+    pub fn new(base: BaseAuthorizer, username: Option<String>, password: Option<String>, two_factor_callback: Option<Fn() -> String>, scopes: Option<Vec<String>>) -> Self {
+        Self {
+            base,
+            username,
+            password,
+            two_factor_callback,
+            scopes
+        }
+    }
+
+    pub async fn refresh(&self) -> Result<(), RawrCoreError> {
+        let data: Vec<(&str, &str)> = vec![];
+
+        if self.scopes.is_some() {
+            let scopes = self.scopes.unwrap().join(" ").as_str();
+            data.push(("scope", scopes));
+        }
+
+        if self.two_factor_callback.is_some() {
+            let tfc: Fn() -> String = self.two_factor_callback.unwrap();
+
+            let code = tfc();
+            if !code.is_empty() {
+                data.push(("otp", code.as_str()));
+            }
+        }
+
+        self.base.request_token(data).await
+    }
+}

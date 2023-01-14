@@ -1,7 +1,11 @@
+use std::vec;
+
 use reqwest::{StatusCode, Response, Url};
 use serde::Serialize;
 
 use crate::{requestor::Requestor, errors::{RawrCoreError, ResponseErrorData}, constants};
+
+use super::authorizers::BaseAuthorizer;
 
 pub trait Authenticator {    
     fn new(requestor: Requestor, client_id: &str, client_secret: &str, redirect_uri: Option<&str>) -> Self;
@@ -153,3 +157,4 @@ impl <'a> Authenticator for UntrustedAuthenticator<'a> {
        self.redirect_uri 
     }
 }
+
